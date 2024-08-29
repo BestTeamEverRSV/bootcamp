@@ -4,6 +4,21 @@ import re
 import ast
 import numpy as np
 
+cols = [
+    "stand_rrg_sdnn",
+    "lying_rrg_sdnn",
+    "d_sdnn",
+    "stand_rrg_rmssd",
+    "lying_rrg_rmssd",
+    "d_rmssd",
+    "stand_rrg_nn50",
+    "lying_rrg_nn50",
+    "d_nn50",
+    "stand_rrg_pnn50",
+    "lying_rrg_pnn50",
+    "d_pnn50",
+]
+
 
 def file_to_list(file_path):
     return (
@@ -96,15 +111,24 @@ def calc_all_cells(data, func):
     return data
 
 
+def calc_median_cols(data, cols):
+    return [data[i].median() if not data[i].isna().all() else np.nan for i in cols]
+
+
 def calc_one_user(dir_path):
     dir_data = folder_to_dataframe_str(dir_path)
     dir_data_nc = calc_all_cells(dir_data, func)
-    return dir_data_nc[[
-        "stand_rrg_sdnn", "lying_rrg_sdnn", "d_sdnn",
-        "stand_rrg_rmssd", "lying_rrg_rmssd", "d_rmssd",
-        "stand_rrg_nn50", "lying_rrg_nn50", "d_nn50",
-        "stand_rrg_pnn50", "lying_rrg_pnn50", "d_pnn50",
-    ]].T
+    return dir_data_nc[cols].T
+
+
+def calc_one_group(dir_path):
+    dir_data = calc_one_user(dir_path).T
+    return pd.DataFrame(
+        {"group_data": calc_median_cols(dir_data, cols)},
+        index=cols,
+    )
+
+
 # print(os.listdir())
-print(calc_one_user("Arseny/folder"))
+print(calc_one_group("Arseny/folder"))
 # calc_one_group()compare_groups()
