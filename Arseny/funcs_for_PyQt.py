@@ -3,19 +3,22 @@ import os
 import re
 import ast
 import numpy as np
+from scipy.stats import shapiro
+from scipy.stats import levene
+from scipy.stats import ttest_ind
 
 cols = [
     "stand_rrg_sdnn",
-    "lying_rrg_sdnn",
-    "d_sdnn",
     "stand_rrg_rmssd",
-    "lying_rrg_rmssd",
-    "d_rmssd",
     "stand_rrg_nn50",
-    "lying_rrg_nn50",
-    "d_nn50",
     "stand_rrg_pnn50",
+    "lying_rrg_sdnn",
+    "lying_rrg_rmssd",
+    "lying_rrg_nn50",
     "lying_rrg_pnn50",
+    "d_sdnn",
+    "d_rmssd",
+    "d_nn50",
     "d_pnn50",
 ]
 
@@ -115,20 +118,72 @@ def calc_median_cols(data, cols):
     return [data[i].median() if not data[i].isna().all() else np.nan for i in cols]
 
 
-def calc_one_user(dir_path):
+def normal_means(
+    s, choice_iterations=10000, sample_size=100, shapiro_iterations=50
+) -> float:
+
+    unique_elems = s.unique()
+    arr = pd.Series(
+        [
+            np.random.choice(unique_elems, len(s)).mean()
+            for _ in range(choice_iterations)
+        ]
+    )
+    return np.mean(
+        [shapiro(arr.sample(sample_size))[1] for _ in range(shapiro_iterations)]
+    )
+
+
+def has_zero_range(data):
+    return data.max() - data.min() == 0
+
+
+def make_t_table(s1, s2):
+    if has_zero_range(s1) or has_zero_range(s2):
+        return None
+    if (
+        (normal_means(s1) >= 0.05)
+        and (normal_means(s2) >= 0.05)
+        and (len(s1.unique()) != 1)
+        and (len(s2.unique()) != 1)
+    ):
+        return ttest_ind(s1, s2, equal_var=(levene(s1, s2)[-1] >= 0.5))[-1]
+    else:
+        return None
+
+
+def calc_user(dir_path):
     dir_data = folder_to_dataframe_str(dir_path)
     dir_data_nc = calc_all_cells(dir_data, func)
     return dir_data_nc[cols].T
 
 
 def calc_one_group(dir_path):
-    dir_data = calc_one_user(dir_path).T
+    dir_data = calc_user(dir_path).T
     return pd.DataFrame(
         {"group_data": calc_median_cols(dir_data, cols)},
         index=cols,
     )
 
 
-# print(os.listdir())
-print(calc_one_group("Arseny/folder"))
-# calc_one_group()compare_groups()
+def compare_groups(dir_path, cols):
+    all_groups = [
+        [path, calc_user(os.path.join(dir_path, path)).T]
+        for path in os.listdir(dir_path)
+        if os.path.isdir(os.path.join(dir_path, path))
+    ]
+    t_list = []
+    for i, data1 in enumerate(all_groups):
+        for j, data2 in enumerate(all_groups):
+            for col in cols:
+                if data1[1][col].isna().all() or data2[1][col].isna().all() or (i <= j):
+                    continue
+                p_val = make_t_table(data1[1][col].dropna(), data2[1][col].dropna())
+                if not p_val:
+                    continue
+                if p_val <= 0.05:
+                    t_list.append([col, data1[0], data2[0], p_val])
+    return t_list
+
+
+print(compare_groups("data", cols), sep="\n", end="\n")
