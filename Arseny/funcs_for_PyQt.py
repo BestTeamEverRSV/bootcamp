@@ -175,7 +175,18 @@ def compare_groups(dir_path, cols):
     t_list = []
     for i, data1 in enumerate(all_groups):
         for j, data2 in enumerate(all_groups):
-            for col in cols:
+            c = [
+                "stand_rrg_sdnn",
+                "stand_rrg_rmssd",
+                "stand_rrg_pnn50",
+                "lying_rrg_sdnn",
+                "lying_rrg_rmssd",
+                "lying_rrg_pnn50",
+                "d_sdnn",
+                "d_rmssd",
+                "d_pnn50",
+            ]
+            for col in c:
                 if data1[1][col].isna().all() or data2[1][col].isna().all() or (i <= j):
                     continue
                 p_val = make_t_table(data1[1][col].dropna(), data2[1][col].dropna())
@@ -183,7 +194,5 @@ def compare_groups(dir_path, cols):
                     continue
                 if p_val <= 0.05:
                     t_list.append([col, data1[0], data2[0], p_val])
-    return t_list
+    return pd.DataFrame(t_list, columns=['metric', 'gr1', 'gr2', 'p-val']).set_index('metric')
 
-
-print(compare_groups("data", cols), sep="\n", end="\n")
