@@ -3,6 +3,8 @@ import os
 import re
 import ast
 import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
 from scipy.stats import shapiro
 from scipy.stats import levene
 from scipy.stats import ttest_ind
@@ -75,12 +77,16 @@ def folder_to_dataframe_str(dir_path):
     return data.dropna(how="all")
 
 
-def func(lst, metr):
-    if isinstance(lst, float):
-        return None
+def make_series(lst):
     if isinstance(lst, str):
         lst = ast.literal_eval(lst)
-    series = pd.Series(lst)
+    if isinstance(lst, float):
+        return None
+    return pd.Series(lst)
+
+
+def func(lst, metr):
+    series = make_series(lst)
     series = series[series >= 0]
     if metr == "sdnn":
         return series.std()
@@ -152,9 +158,32 @@ def make_t_table(s1, s2):
         return None
 
 
+def make_paun_plot(series, name, typ):
+    # print(type(series), series)
+    rr_s = make_series(series[0])
+    rr_s_next = rr_s.shift(-1)
+    rr = rr_s.values
+    rr_next = rr_s_next.values[:-1]
+    sd1 = (2**0.5) * pd.Series(rr_next - rr[:-1]).std()
+    sd2 = (2**0.5) * pd.Series(rr_next + rr[:-1]).std()
+    print(rr[:-1])
+    print(rr_next)
+    plt.figure(figsize=(8,8))
+    sns.scatterplot(x=rr[:-1], y=rr_next, alpha=0.5)
+    plt.plot([min(rr), max(rr)], [min(rr), max(rr)], color="red")
+    plt.xlabel("RR(n), мс")
+    plt.ylabel("RR(n+1), мс")
+    plt.title(f"Пуанкаре плот RR интервалов для {name}")
+    plt.savefig(f'{name}_{typ}.png')
+
 def calc_user(dir_path):
     dir_data = folder_to_dataframe_str(dir_path)
     dir_data_nc = calc_all_cells(dir_data, func)
+    if len(dir_data_nc[cols]) == 1:
+        if dir_data["stand_rrg"][0] != None:
+            make_paun_plot(dir_data["stand_rrg"], dir_path, "stand_rrg")
+        if dir_data["lying_rrg"][0] != None:
+            make_paun_plot(dir_data['lying_rrg'], dir_path, "lying_rrg")
     return dir_data_nc[cols].T
 
 
@@ -166,7 +195,7 @@ def calc_one_group(dir_path):
     )
 
 
-def compare_groups(dir_path, cols):
+def compare_groups(dir_path):
     all_groups = [
         [path, calc_user(os.path.join(dir_path, path)).T]
         for path in os.listdir(dir_path)
@@ -194,5 +223,9 @@ def compare_groups(dir_path, cols):
                     continue
                 if p_val <= 0.05:
                     t_list.append([col, data1[0], data2[0], p_val])
-    return pd.DataFrame(t_list, columns=['metric', 'gr1', 'gr2', 'p-val']).set_index('metric')
+    return pd.DataFrame(t_list, columns=["metric", "gr1", "gr2", "p-val"]).set_index(
+        "metric"
+    )
 
+
+print(calc_user("Arseny/folder"))
