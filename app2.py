@@ -164,15 +164,23 @@ def calc_one_group(dir_path):
     )
 
 def compare_groups(dir_path):
-    all_groups = [
-        [path, calc_user(os.path.join(dir_path, path)).T]
-        for path in os.listdir(dir_path)
-        if os.path.isdir(os.path.join(dir_path, path))
-    ]
+    # Check if the provided directory path is valid
+    if not dir_path or not os.path.exists(dir_path):
+        raise ValueError(f"Invalid directory path provided: {dir_path}")    
+    all_groups = []
+    for path in os.listdir(dir_path):
+        full_path = os.path.join(dir_path, path)
+        if os.path.isdir(full_path):
+            # Call calc_user and store the results in the list
+            all_groups.append([path, calc_user(full_path).T])
+    
     t_list = []
     for i, data1 in enumerate(all_groups):
         for j, data2 in enumerate(all_groups):
-            c = [
+            if i <= j:
+                continue  # Avoid comparing the same group or comparing in reverse
+            
+            metrics = [
                 "stand_rrg_sdnn",
                 "stand_rrg_rmssd",
                 "stand_rrg_pnn50",
@@ -183,15 +191,22 @@ def compare_groups(dir_path):
                 "d_rmssd",
                 "d_pnn50",
             ]
-            for col in c:
-                if data1[1][col].isna().all() or data2[1][col].isna().all() or (i <= j):
+            
+            for col in metrics:
+                # Skip if data is not available or valid for the metric
+                if data1[1][col].isna().all() or data2[1][col].isna().all():
                     continue
+                
+                # Calculate the p-value
                 p_val = make_t_table(data1[1][col].dropna(), data2[1][col].dropna())
-                if not p_val:
-                    continue
-                if p_val <= 0.05:
+                
+                # If a significant p-value is found, add to the list
+                if p_val and p_val <= 0.05:
                     t_list.append([col, data1[0], data2[0], p_val])
+    
+    # Return the results as a DataFrame
     return pd.DataFrame(t_list, columns=["metric", "gr1", "gr2", "p-val"]).set_index("metric")
+
 
 class MainWindow(QWidget):
     def __init__(self):
