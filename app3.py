@@ -12,13 +12,9 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QDialog,
-    QGridLayout,
 )
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
-import pandas as pd
-import matplotlib.pyplot as plt
-from io import BytesIO
 
 
 import pandas as pd
@@ -72,7 +68,7 @@ def standard_file_name_str(name):
     return n, typ, ext
 
 
-def folder_to_dataframe_str(dir_path):
+def folder_to_dataframe_int(dir_path):
     files = os.listdir(dir_path)
     nones = [None] * len(files)
     data = pd.DataFrame(
@@ -85,18 +81,22 @@ def folder_to_dataframe_str(dir_path):
         }
     )
     for count_lines, file in enumerate(files):
-        n, typ, ext = standard_file_name_str(file)
+        n, typ, ext = stardart_file_name_int(file)
         file_path = os.path.join(dir_path, file)
         if os.path.isfile(file_path):
-            if (data["n"] == n).any():
-                row_index = data.index[data["n"] == n].tolist()[0]
-                if data.at[row_index, typ + "_" + ext] is None:
-                    data.at[row_index, typ + "_" + ext] = file_to_list(file_path)
+            if (data.n == n).any():
+                if data.loc[data["n"] == n, typ + "_" + ext].isna().all():
+                    data.at[data.index[data["n"] == n].tolist()[0], typ + "_" + ext] = (
+                        file_to_list(file_path)
+                    )
                 else:
-                    data.at[row_index, typ + "_" + ext] += file_to_list(file_path)
+                    data.at[data.index[data["n"] == n].tolist()[0], typ + "_" + ext] = (
+                        data.at[data.index[data["n"] == n].tolist()[0], typ + "_" + ext]
+                        + file_to_list(file_path)
+                    )
             else:
-                data.at[count_lines, "n"] = n
                 data.at[count_lines, typ + "_" + ext] = file_to_list(file_path)
+                data.at[count_lines, "n"] = n
     return data.dropna(how="all")
 
 
@@ -124,7 +124,7 @@ def func(lst, metr):
 
 
 def dif_stand_lying(data, cols):
-    return (data[cols[0]] - data[cols[1]]).abs()
+    return (data[cols[0]] - data[cols[1]]).abs().round(4)
 
 
 def calc_all_cells(data, func):
@@ -132,7 +132,7 @@ def calc_all_cells(data, func):
     typ = ["stand_rrg", "lying_rrg", "stand_rrn", "lying_rrn"]
     for i in typ:
         for j in metr:
-            data[i + "_" + j] = data[i].map(lambda x: func(x, j))
+            data[i + "_" + j] = data[i].map(lambda x: round(func(x, j), 4))
     for i in [
         ["stand_rrg_sdnn", "lying_rrg_sdnn", "d_sdnn"],
         ["stand_rrg_rmssd", "lying_rrg_rmssd", "d_rmssd"],
@@ -198,14 +198,14 @@ def make_paun_plot(series, name, typ):
 
 
 def calc_user(dir_path):
-    dir_data = folder_to_dataframe_str(dir_path)
+    dir_data = folder_to_dataframe_int(dir_path)
     dir_data_nc = calc_all_cells(dir_data, func)
     if len(dir_data_nc[cols]) == 1:
         if dir_data["stand_rrg"][0] != None:
             make_paun_plot(dir_data["stand_rrg"], dir_path, "stand_rrg")
         if dir_data["lying_rrg"][0] != None:
             make_paun_plot(dir_data["lying_rrg"], dir_path, "lying_rrg")
-    return dir_data_nc[cols].T
+    return dir_data_nc.set_index("n")[cols].T
 
 
 def calc_one_group(dir_path):
@@ -243,8 +243,8 @@ def compare_groups(dir_path):
                 if not p_val:
                     continue
                 if p_val <= 0.05:
-                    t_list.append([col, data1[0], data2[0], p_val])
-    return pd.DataFrame(t_list, columns=["metric", "gr1", "gr2", "p-val"]).set_index(
+                    t_list.append([col, data1[0], data2[0], data1[1][col].dropna().median(), data2[1][col].dropna().median(), round(p_val, 4)])
+    return pd.DataFrame(t_list, columns=["metric", "gr1", "gr2", "med_gr1", "med_gr2", "p-val"]).set_index(
         "metric"
     )
 
@@ -252,15 +252,19 @@ def compare_groups(dir_path):
 def display_dataframe(data: pd.DataFrame):
     dialog = QDialog()
     layout = QVBoxLayout(dialog)
-    print(data.columns.astype(str))
     table_widget = QTableWidget()
     table_widget.setRowCount(data.shape[0])
     table_widget.setColumnCount(data.shape[1])
     table_widget.setHorizontalHeaderLabels(data.columns.astype(str))
     table_widget.setVerticalHeaderLabels(data.index.astype(str))
+
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
-            table_widget.setItem(i, j, QTableWidgetItem(str(data.iat[i, j])))
+            item = QTableWidgetItem(str(data.iat[i, j]))
+            item.setFlags(
+                item.flags() & ~Qt.ItemIsEditable
+            )  # Make the item non-editable
+            table_widget.setItem(i, j, item)
 
     table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
     table_widget.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -268,10 +272,10 @@ def display_dataframe(data: pd.DataFrame):
     layout.addWidget(table_widget)
     dialog.setLayout(layout)
     dialog.setWindowTitle("DataFrame Viewer")
-    dialog.resize(1200, 600) 
+    dialog.resize(1200, 600)
     dialog.exec_()
-    
-# A utility function to display images/graphs
+
+
 def display_image(image_path):
     dialog = QDialog()
     layout = QVBoxLayout(dialog)
@@ -316,13 +320,50 @@ class MainWindow(QMainWindow):
         folder_path = self.select_folder()
         if folder_path:
             user_data = calc_user(folder_path)
-            # :TODO: сделать, чтобы номер человека был названием колонки или тп. Можно t_list заменить на словарь, где ключ - n
-            display_dataframe(user_data)
-            user_data = user_data.T
-            for ext in ["stand_rrg", "lying_rrg"]:
-                if os.path.exists(f"{folder_path}_{ext}.png"):
-                    image_path = f"{folder_path}_{ext}.png"
-                    display_image(f"{folder_path}_{ext}.png")
+
+            if os.path.exists(f"{folder_path}_stand_rrg.png"):
+                stand_dialog = QDialog(self)
+                stand_layout = QVBoxLayout(stand_dialog)
+                stand_label = QLabel(stand_dialog)
+                stand_pixmap = QPixmap(f"{folder_path}_stand_rrg.png")
+                stand_label.setPixmap(stand_pixmap)
+                stand_layout.addWidget(stand_label)
+                stand_dialog.setWindowTitle("Stand RRG Image")
+                stand_dialog.show()
+
+            if os.path.exists(f"{folder_path}_lying_rrg.png"):
+                lying_dialog = QDialog(self)
+                lying_layout = QVBoxLayout(lying_dialog)
+                lying_label = QLabel(lying_dialog)
+                lying_pixmap = QPixmap(f"{folder_path}_lying_rrg.png")
+                lying_label.setPixmap(lying_pixmap)
+                lying_layout.addWidget(lying_label)
+                lying_dialog.setWindowTitle("Lying RRG Image")
+                lying_dialog.show()
+
+            dialog = QDialog(self)
+            layout = QVBoxLayout(dialog)
+            table_widget = QTableWidget()
+            table_widget.setRowCount(user_data.shape[0])
+            table_widget.setColumnCount(user_data.shape[1])
+            table_widget.setHorizontalHeaderLabels(user_data.columns.astype(str))
+            table_widget.setVerticalHeaderLabels(user_data.index.astype(str))
+
+            for i in range(user_data.shape[0]):
+                for j in range(user_data.shape[1]):
+                    item = QTableWidgetItem(str(user_data.iat[i, j]))
+                    item.setFlags(
+                        item.flags() & ~Qt.ItemIsEditable
+                    )  # Make the item non-editable
+                    table_widget.setItem(i, j, item)
+
+            table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            table_widget.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            layout.addWidget(table_widget)
+            dialog.setLayout(layout)
+            dialog.setWindowTitle("DataFrame Viewer")
+            dialog.resize(1200, 600)
+            dialog.show()
 
     def perform_group_analysis(self):
         folder_path = self.select_folder()
