@@ -249,6 +249,7 @@ def compare_groups(dir_path):
     )
 
 
+
 def display_dataframe(data: pd.DataFrame):
     dialog = QDialog()
     layout = QVBoxLayout(dialog)

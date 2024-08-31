@@ -51,7 +51,7 @@ def folder_to_dataframe_str(dir_path):
         file_path = os.path.join(dir_path, file)
         if os.path.isfile(file_path):
             if (data["n"] == n).any():
-                row_index = data.index[data["n"] == n].tolist()[0]
+                row_index = data.index[data["n"] == n]
                 if data.at[row_index, typ + "_" + ext] is None:
                     data.at[row_index, typ + "_" + ext] = file_to_list(file_path)
                 else:
@@ -144,12 +144,14 @@ def make_paun_plot(series, name, typ):
     plt.xlabel("RR(n), мс")
     plt.ylabel("RR(n+1), мс")
     plt.title(f"Пуанкаре плот RR интервалов для {name}")
+    print()
     plt.savefig(f'{name}_{typ}.png')
 
 def calc_user(dir_path):
     dir_data = folder_to_dataframe_str(dir_path)
     dir_data_nc = calc_all_cells(dir_data, func)
     if len(dir_data_nc[cols]) == 1:
+        print(dir_data["stand_rrg"][0], dir_data["lying_rrg"][0])
         if dir_data["stand_rrg"][0] != None:
             make_paun_plot(dir_data["stand_rrg"], dir_path, "stand_rrg")
         if dir_data["lying_rrg"][0] != None:

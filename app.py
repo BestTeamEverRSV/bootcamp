@@ -1,15 +1,32 @@
 import sys
 import os
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QFileDialog,
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QDialog,
+)
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import Qt
+
+
+import pandas as pd
+import os
 import re
 import ast
 import numpy as np
 import seaborn as sns
-import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import shapiro
 from scipy.stats import levene
 from scipy.stats import ttest_ind
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog
 
 cols = [
     "stand_rrg_sdnn",
@@ -51,7 +68,7 @@ def standard_file_name_str(name):
     return n, typ, ext
 
 
-def folder_to_dataframe_str(dir_path):
+def folder_to_dataframe_int(dir_path):
     files = os.listdir(dir_path)
     nones = [None] * len(files)
     data = pd.DataFrame(
@@ -64,18 +81,22 @@ def folder_to_dataframe_str(dir_path):
         }
     )
     for count_lines, file in enumerate(files):
-        n, typ, ext = standard_file_name_str(file)
+        n, typ, ext = stardart_file_name_int(file)
         file_path = os.path.join(dir_path, file)
         if os.path.isfile(file_path):
-            if (data["n"] == n).any():
-                row_index = data.index[data["n"] == n].tolist()[0]
-                if data.at[row_index, typ + "_" + ext] is None:
-                    data.at[row_index, typ + "_" + ext] = file_to_list(file_path)
+            if (data.n == n).any():
+                if data.loc[data["n"] == n, typ + "_" + ext].isna().all():
+                    data.at[data.index[data["n"] == n].tolist()[0], typ + "_" + ext] = (
+                        file_to_list(file_path)
+                    )
                 else:
-                    data.at[row_index, typ + "_" + ext] += file_to_list(file_path)
+                    data.at[data.index[data["n"] == n].tolist()[0], typ + "_" + ext] = (
+                        data.at[data.index[data["n"] == n].tolist()[0], typ + "_" + ext]
+                        + file_to_list(file_path)
+                    )
             else:
-                data.at[count_lines, "n"] = n
                 data.at[count_lines, typ + "_" + ext] = file_to_list(file_path)
+                data.at[count_lines, "n"] = n
     return data.dropna(how="all")
 
 
@@ -103,7 +124,7 @@ def func(lst, metr):
 
 
 def dif_stand_lying(data, cols):
-    return (data[cols[0]] - data[cols[1]]).abs()
+    return (data[cols[0]] - data[cols[1]]).abs().round(4)
 
 
 def calc_all_cells(data, func):
@@ -111,7 +132,7 @@ def calc_all_cells(data, func):
     typ = ["stand_rrg", "lying_rrg", "stand_rrn", "lying_rrn"]
     for i in typ:
         for j in metr:
-            data[i + "_" + j] = data[i].map(lambda x: func(x, j))
+            data[i + "_" + j] = data[i].map(lambda x: round(func(x, j), 4))
     for i in [
         ["stand_rrg_sdnn", "lying_rrg_sdnn", "d_sdnn"],
         ["stand_rrg_rmssd", "lying_rrg_rmssd", "d_rmssd"],
@@ -161,32 +182,30 @@ def make_t_table(s1, s2):
 
 
 def make_paun_plot(series, name, typ):
-    # print(type(series), series)
     rr_s = make_series(series[0])
     rr_s_next = rr_s.shift(-1)
     rr = rr_s.values
     rr_next = rr_s_next.values[:-1]
     sd1 = (2**0.5) * pd.Series(rr_next - rr[:-1]).std()
     sd2 = (2**0.5) * pd.Series(rr_next + rr[:-1]).std()
-    print(rr[:-1])
-    print(rr_next)
-    plt.figure(figsize=(8,8))
+    plt.figure(figsize=(8, 8))
     sns.scatterplot(x=rr[:-1], y=rr_next, alpha=0.5)
     plt.plot([min(rr), max(rr)], [min(rr), max(rr)], color="red")
     plt.xlabel("RR(n), мс")
     plt.ylabel("RR(n+1), мс")
     plt.title(f"Пуанкаре плот RR интервалов для {name}")
-    plt.savefig(f'{name}_{typ}.png')
+    plt.savefig(f"{name}_{typ}.png")
+
 
 def calc_user(dir_path):
-    dir_data = folder_to_dataframe_str(dir_path)
+    dir_data = folder_to_dataframe_int(dir_path)
     dir_data_nc = calc_all_cells(dir_data, func)
     if len(dir_data_nc[cols]) == 1:
         if dir_data["stand_rrg"][0] != None:
             make_paun_plot(dir_data["stand_rrg"], dir_path, "stand_rrg")
         if dir_data["lying_rrg"][0] != None:
-            make_paun_plot(dir_data['lying_rrg'], dir_path, "lying_rrg")
-    return dir_data_nc[cols].T
+            make_paun_plot(dir_data["lying_rrg"], dir_path, "lying_rrg")
+    return dir_data_nc.set_index("n")[cols].T
 
 
 def calc_one_group(dir_path):
@@ -230,149 +249,138 @@ def compare_groups(dir_path):
     )
 
 
-class MainWindow(QWidget):
+def display_dataframe(data: pd.DataFrame):
+    dialog = QDialog()
+    layout = QVBoxLayout(dialog)
+    table_widget = QTableWidget()
+    table_widget.setRowCount(data.shape[0])
+    table_widget.setColumnCount(data.shape[1])
+    table_widget.setHorizontalHeaderLabels(data.columns.astype(str))
+    table_widget.setVerticalHeaderLabels(data.index.astype(str))
+    
+    for i in range(data.shape[0]):
+        for j in range(data.shape[1]):
+            item = QTableWidgetItem(str(data.iat[i, j]))
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)  # Make the item non-editable
+            table_widget.setItem(i, j, item)
+
+    table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+    table_widget.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+    layout.addWidget(table_widget)
+    dialog.setLayout(layout)
+    dialog.setWindowTitle("DataFrame Viewer")
+    dialog.resize(1200, 600)
+    dialog.exec_()
+
+
+
+def display_image(image_path):
+    dialog = QDialog()
+    layout = QVBoxLayout(dialog)
+
+    label = QLabel(dialog)
+    pixmap = QPixmap(image_path)
+    label.setPixmap(pixmap)
+    layout.addWidget(label)
+
+    dialog.setLayout(layout)
+    dialog.setWindowTitle("Graph Viewer")
+    dialog.exec_()
+
+
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowTitle("Data Analysis Application")
 
-        self.setWindowTitle("Анализ данных")
-        self.setGeometry(100, 100, 300, 200)
-        self.current_window = None
-        self.person_button = QPushButton("Анализ человека", self)
-        self.group_button = QPushButton("Анализ группы", self)
-        self.compare_button = QPushButton("Сравнить группы", self)
-        self.person_button.clicked.connect(self.open_person_window)
-        self.group_button.clicked.connect(self.open_group_window)
-        self.compare_button.clicked.connect(self.open_compare_window)
+        self.user_button = QPushButton("User Analysis")
+        self.group_button = QPushButton("Group Analysis")
+        self.compare_button = QPushButton("Group Comparison")
+
         layout = QVBoxLayout()
-        layout.addWidget(self.person_button)
+        layout.addWidget(self.user_button)
         layout.addWidget(self.group_button)
         layout.addWidget(self.compare_button)
-        self.setLayout(layout)
 
-    def close_current_window(self):
-        if self.current_window is not None:
-            self.current_window.close()
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
 
-    def open_person_window(self):
-        self.close_current_window()
-        self.current_window = PersonWindow()
-        self.current_window.show()
-
-    def open_group_window(self):
-        self.close_current_window()
-        self.current_window = GroupWindow()
-        self.current_window.show()
-
-    def open_compare_window(self):
-        self.close_current_window()
-        self.current_window = CompareWindow()
-        self.current_window.show()
-
-
-class PersonWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Анализ человека")
-        self.setGeometry(150, 150, 400, 300)
-        self.file_path = None
-        self.label = QLabel("Выберите файл RRG для анализа", self)
-        self.select_file_button = QPushButton("Выбрать файл", self)
-        self.confirm_button = QPushButton("Подтвердить выбор", self)
-        self.select_file_button.clicked.connect(self.select_file)
-        self.confirm_button.clicked.connect(self.analyze_file)
-        layout = QVBoxLayout()
-        layout.addWidget(self.label)
-        layout.addWidget(self.select_file_button)
-        layout.addWidget(self.confirm_button)
-        self.setLayout(layout)
-
-    def select_file(self):
-        self.file_path = QFileDialog.getOpenFileName(self, "Выбрать файл", filter="RRG files (*.rrg)")[0]
-        self.label.setText(f"Выбран файл: {self.file_path}")
-
-    def analyze_file(self):
-        if self.file_path:
-            df = calc_user(os.path.dirname(self.file_path))
-            DataFrameWindow(df, self.file_path).show()
-            self.close()
-
-
-class GroupWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Анализ группы")
-        self.setGeometry(150, 150, 400, 300)
-        self.folder_path = None
-        self.label = QLabel("Выберите папку для анализа группы", self)
-        self.select_folder_button = QPushButton("Выбрать папку", self)
-        self.confirm_button = QPushButton("Подтвердить выбор", self)
-        self.select_folder_button.clicked.connect(self.select_folder)
-        self.confirm_button.clicked.connect(self.analyze_folder)
-        layout = QVBoxLayout()
-        layout.addWidget(self.label)
-        layout.addWidget(self.select_folder_button)
-        layout.addWidget(self.confirm_button)
-        self.setLayout(layout)
+        self.user_button.clicked.connect(self.perform_user_analysis)
+        self.group_button.clicked.connect(self.perform_group_analysis)
+        self.compare_button.clicked.connect(self.perform_group_comparison)
 
     def select_folder(self):
-        self.folder_path = QFileDialog.getExistingDirectory(self, "Выбрать папку")
-        self.label.setText(f"Выбрана папка: {self.folder_path}")
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
+        return folder_path
 
-    def analyze_folder(self):
-        if self.folder_path:
-            df = calc_one_group(self.folder_path)
-            DataFrameWindow(df, self.folder_path).show()
-            self.close()
-
-
-class CompareWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Сравнить группы")
-        self.setGeometry(150, 150, 400, 300)
-        self.folder_paths = []
-        self.label = QLabel("Выберите две папки для сравнения", self)
-        self.select_folder_button = QPushButton("Выбрать первую папку", self)
-        self.select_second_folder_button = QPushButton("Выбрать вторую папку", self)
-        self.confirm_button = QPushButton("Подтвердить выбор", self)
-        self.select_folder_button.clicked.connect(lambda: self.select_folder(0))
-        self.select_second_folder_button.clicked.connect(lambda: self.select_folder(1))
-        self.confirm_button.clicked.connect(self.compare_folders)
-        layout = QVBoxLayout()
-        layout.addWidget(self.label)
-        layout.addWidget(self.select_folder_button)
-        layout.addWidget(self.select_second_folder_button)
-        layout.addWidget(self.confirm_button)
-        self.setLayout(layout)
-
-    def select_folder(self, index):
-        folder_path = QFileDialog.getExistingDirectory(self, "Выбрать папку")
+    def perform_user_analysis(self):
+        folder_path = self.select_folder()
         if folder_path:
-            if len(self.folder_paths) > index:
-                self.folder_paths[index] = folder_path
-            else:
-                self.folder_paths.append(folder_path)
-            self.label.setText(f"Выбраны папки: {', '.join(self.folder_paths)}")
+            user_data = calc_user(folder_path)
 
-    def compare_folders(self):
-        if len(self.folder_paths) == 2:
-            df = compare_groups(self.folder_paths)
-            DataFrameWindow(df, "Сравнение групп").show()
-            self.close()
+            if os.path.exists(f"{folder_path}_stand_rrg.png"):
+                stand_dialog = QDialog(self)
+                stand_layout = QVBoxLayout(stand_dialog)
+                stand_label = QLabel(stand_dialog)
+                stand_pixmap = QPixmap(f"{folder_path}_stand_rrg.png")
+                stand_label.setPixmap(stand_pixmap)
+                stand_layout.addWidget(stand_label)
+                stand_dialog.setWindowTitle("Stand RRG Image")
+                stand_dialog.show()
+
+            if os.path.exists(f"{folder_path}_lying_rrg.png"):
+                lying_dialog = QDialog(self)
+                lying_layout = QVBoxLayout(lying_dialog)
+                lying_label = QLabel(lying_dialog)
+                lying_pixmap = QPixmap(f"{folder_path}_lying_rrg.png")
+                lying_label.setPixmap(lying_pixmap)
+                lying_layout.addWidget(lying_label)
+                lying_dialog.setWindowTitle("Lying RRG Image")
+                lying_dialog.show()
+
+            dialog = QDialog(self)
+            layout = QVBoxLayout(dialog)
+            table_widget = QTableWidget()
+            table_widget.setRowCount(user_data.shape[0])
+            table_widget.setColumnCount(user_data.shape[1])
+            table_widget.setHorizontalHeaderLabels(user_data.columns.astype(str))
+            table_widget.setVerticalHeaderLabels(user_data.index.astype(str))
+
+            for i in range(user_data.shape[0]):
+                for j in range(user_data.shape[1]):
+                    item = QTableWidgetItem(str(user_data.iat[i, j]))
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)  # Make the item non-editable
+                    table_widget.setItem(i, j, item)
+
+            table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            table_widget.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            layout.addWidget(table_widget)
+            dialog.setLayout(layout)
+            dialog.setWindowTitle("DataFrame Viewer")
+            dialog.resize(1200, 600)
+            dialog.show()
+
+    def perform_group_analysis(self):
+        folder_path = self.select_folder()
+        if folder_path:
+            group_data = calc_one_group(folder_path)
+            display_dataframe(group_data)
+
+    def perform_group_comparison(self):
+        folder_path = self.select_folder()
+        if folder_path:
+            comparison_data = compare_groups(folder_path)
+            display_dataframe(comparison_data)
 
 
-class DataFrameWindow(QWidget):
-    def __init__(self, df, title):
-        super().__init__()
-        self.setWindowTitle("Результат анализа")
-        self.setGeometry(200, 200, 500, 400)
-        label = QLabel(df.head().to_string(), self)
-        layout = QVBoxLayout()
-        layout.addWidget(label)
-        self.setLayout(layout)
-
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
     main_window = MainWindow()
     main_window.show()
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
